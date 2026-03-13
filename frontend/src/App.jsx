@@ -4,6 +4,7 @@ import GameList from './views/GameList';
 import GameDetail from './views/GameDetail';
 import Performance from './views/Performance';
 import Rankings from './views/Rankings';
+import TheBrain from './views/TheBrain';
 
 export default function App() {
   const [data, setData] = useState(null);
@@ -71,7 +72,7 @@ export default function App() {
       <header className="border-b border-border px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="text-neon text-xl font-bold tracking-tight">
-            MADNESS<span className="text-blue">LAB</span>
+            THIS IS<span className="text-blue">MARCH</span>
           </div>
           <span className="text-text-dim text-xs tracking-widest uppercase hidden sm:inline">
             NCAAB Betting Analytics
@@ -100,12 +101,13 @@ export default function App() {
 
       {/* Filter bar */}
       <nav className="border-b border-border px-3 sm:px-6 flex flex-wrap items-center gap-0">
-        <div className="flex gap-0 w-full sm:w-auto overflow-x-auto">
+        <div className="flex gap-0 w-full sm:w-auto overflow-x-auto shrink-0">
           {[
             { id: 'all', label: `All (${games.length})` },
             { id: 'value', label: `Value (${valueBets.length})` },
             { id: 'performance', label: 'Perf' },
             { id: 'rankings', label: 'Rankings' },
+            { id: 'brain', label: 'The Brain' },
           ].map((f) => (
             <button
               key={f.id}
@@ -121,8 +123,8 @@ export default function App() {
           ))}
         </div>
 
-        {!selectedGame && filter !== 'performance' && filter !== 'rankings' && (
-          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto py-2 sm:py-0 sm:ml-auto">
+        {!selectedGame && filter !== 'performance' && filter !== 'rankings' && filter !== 'brain' && (
+          <div className="flex flex-wrap items-center gap-2 w-full py-2 sm:py-1 sm:ml-auto sm:w-auto">
             <div className="flex text-[10px] border border-border rounded overflow-hidden">
               {[{ id: 'time', label: 'Time' }, { id: 'value', label: 'Edge' }].map((s) => (
                 <button
@@ -194,6 +196,8 @@ export default function App() {
           <Performance />
         ) : filter === 'rankings' ? (
           <Rankings />
+        ) : filter === 'brain' ? (
+          <TheBrain games={games} />
         ) : (
           <GameList
             games={filterGames(filter === 'value' ? valueBets : games)}
