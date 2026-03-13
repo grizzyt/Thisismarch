@@ -99,18 +99,18 @@ export default function App() {
       </header>
 
       {/* Filter bar */}
-      <nav className="border-b border-border px-6 flex items-center justify-between gap-4">
-        <div className="flex gap-1 shrink-0">
+      <nav className="border-b border-border px-3 sm:px-6 flex flex-wrap items-center gap-0">
+        <div className="flex gap-0 w-full sm:w-auto overflow-x-auto">
           {[
-            { id: 'all', label: `All Games (${games.length})` },
-            { id: 'value', label: `Value Bets (${valueBets.length})` },
-            { id: 'performance', label: 'Performance' },
+            { id: 'all', label: `All (${games.length})` },
+            { id: 'value', label: `Value (${valueBets.length})` },
+            { id: 'performance', label: 'Perf' },
             { id: 'rankings', label: 'Rankings' },
           ].map((f) => (
             <button
               key={f.id}
               onClick={() => { setFilter(f.id); setSelectedGame(null); }}
-              className={`px-4 py-3 text-xs uppercase tracking-wider transition-colors cursor-pointer ${
+              className={`px-3 sm:px-4 py-3 text-xs uppercase tracking-wider transition-colors cursor-pointer whitespace-nowrap ${
                 filter === f.id
                   ? 'text-neon border-b-2 border-neon'
                   : 'text-text-dim hover:text-text border-b-2 border-transparent'
@@ -122,7 +122,7 @@ export default function App() {
         </div>
 
         {!selectedGame && filter !== 'performance' && filter !== 'rankings' && (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto py-2 sm:py-0 sm:ml-auto">
             <div className="flex text-[10px] border border-border rounded overflow-hidden">
               {[{ id: 'time', label: 'Time' }, { id: 'value', label: 'Edge' }].map((s) => (
                 <button
@@ -165,7 +165,7 @@ export default function App() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search team..."
-              className="bg-transparent border border-border rounded px-3 py-1 text-xs text-text placeholder-text-dim focus:outline-none focus:border-neon transition-colors w-44"
+              className="bg-transparent border border-border rounded px-3 py-1 text-xs text-text placeholder-text-dim focus:outline-none focus:border-neon transition-colors w-36 sm:w-44"
             />
           </div>
         )}
@@ -173,7 +173,7 @@ export default function App() {
         {selectedGame && (
           <button
             onClick={() => setSelectedGame(null)}
-            className="text-xs text-text-dim hover:text-neon cursor-pointer transition-colors"
+            className="text-xs text-text-dim hover:text-neon cursor-pointer transition-colors py-2 sm:py-0 sm:ml-auto"
           >
             ← Back to list
           </button>
@@ -181,7 +181,7 @@ export default function App() {
       </nav>
 
       {/* Content */}
-      <main className="p-6">
+      <main className="p-3 sm:p-6">
         {error && (
           <div className="bg-red/10 border border-red/30 text-red px-4 py-3 rounded text-sm mb-4">
             Backend unavailable: {error}
