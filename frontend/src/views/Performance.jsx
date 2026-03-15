@@ -364,7 +364,14 @@ export default function Performance() {
                       </span>
                     </td>
                     <td className={`py-2 pr-4 text-center font-medium ${RESULT_STYLES[g.model_result] || 'text-text-dim'}`}>
-                      {g.model_result === 'correct' ? 'W' : g.model_result === 'incorrect' ? 'L' : g.model_result}
+                      {(() => {
+                        const pickTeam = g.value_bet_side
+                          ? (g.value_bet_side || '').replace(/ \w+$/, '')
+                          : g.model_spread < 0
+                            ? (g.home_torvik || g.home_team || '').replace(/ \w+$/, '')
+                            : (g.away_torvik || g.away_team || '').replace(/ \w+$/, '');
+                        return pickTeam || (g.model_result === 'correct' ? 'W' : 'L');
+                      })()}
                     </td>
                     <td className="py-2 text-center">
                       {g.value_bet_side ? (

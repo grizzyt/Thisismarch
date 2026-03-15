@@ -155,6 +155,21 @@ export default function GameCard({ game, onClick }) {
             </div>
           </div>
 
+          {/* Model Pick */}
+          {!value_bet && p.model_spread != null && (
+            <div className="border-t border-border/50 pt-3 pb-1 text-center">
+              <span className="text-[9px] text-text-dim uppercase tracking-wider">Model Pick  </span>
+              <span className={`text-xs font-bold ${p.model_spread < 0 ? 'text-neon' : 'text-blue'}`}>
+                {p.model_spread < 0
+                  ? (game.home_torvik || game.home_team.replace(/ \w+$/, ''))
+                  : (game.away_torvik || game.away_team.replace(/ \w+$/, ''))}
+              </span>
+              <span className="text-[9px] text-text-dim ml-1">
+                ({p.model_spread < 0 ? formatSpread(p.model_spread) : formatSpread(-p.model_spread)})
+              </span>
+            </div>
+          )}
+
           {/* Total + Moneyline */}
           <div className="grid grid-cols-3 gap-2 text-center border-t border-border/50 pt-3">
             <div>
