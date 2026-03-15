@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API = '';
 
 const COLS = [
   { key: 'rank',    label: 'Rk',      title: 'Rank',                    num: true },
