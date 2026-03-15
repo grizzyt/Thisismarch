@@ -202,6 +202,9 @@ export default function Performance() {
   const [backfilling, setBackfilling] = useState(false);
   const [backfillResult, setBackfillResult] = useState(null);
   const [selectedGame, setSelectedGame] = useState(null);
+  const [search, setSearch] = useState('');
+  const [onlyValue, setOnlyValue] = useState(false);
+  const [dayFilter, setDayFilter] = useState('all');
 
   const load = () => {
     setLoading(true);
@@ -232,8 +235,29 @@ export default function Performance() {
   }
 
   const { stats, game_log } = data;
-  const completed = game_log.filter((g) => g.completed);
-  const pending = game_log.filter((g) => !g.completed);
+
+  // Build day options from all games
+  const dayOptions = [...new Set(
+    game_log.map((g) => g.commence_time ? new Date(g.commence_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : null).filter(Boolean)
+  )].sort((a, b) => new Date(a) - new Date(b));
+
+  const filterGames = (list) => list.filter((g) => {
+    if (onlyValue && !g.value_bet_side) return false;
+    if (dayFilter !== 'all') {
+      const d = g.commence_time ? new Date(g.commence_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : null;
+      if (d !== dayFilter) return false;
+    }
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      const home = (g.home_torvik || g.home_team || '').toLowerCase();
+      const away = (g.away_torvik || g.away_team || '').toLowerCase();
+      if (!home.includes(q) && !away.includes(q)) return false;
+    }
+    return true;
+  });
+
+  const completed = filterGames(game_log.filter((g) => g.completed));
+  const pending = filterGames(game_log.filter((g) => !g.completed));
 
   return (
     <div className="space-y-6">
@@ -259,6 +283,33 @@ export default function Performance() {
             Refresh Scores
           </button>
         </div>
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-wrap gap-2 items-center">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search team..."
+          className="text-xs bg-surface border border-border rounded px-3 py-1.5 text-text placeholder-text-dim focus:outline-none focus:border-neon/50 w-36"
+        />
+        <select
+          value={dayFilter}
+          onChange={(e) => setDayFilter(e.target.value)}
+          className="text-xs bg-surface border border-border rounded px-3 py-1.5 text-text focus:outline-none focus:border-neon/50 cursor-pointer"
+        >
+          <option value="all">All Days</option>
+          {dayOptions.map((d) => <option key={d} value={d}>{d}</option>)}
+        </select>
+        <button
+          onClick={() => setOnlyValue((v) => !v)}
+          className={`text-[10px] border rounded px-2 py-1.5 transition-colors cursor-pointer ${
+            onlyValue ? 'border-neon text-neon bg-neon/10' : 'border-border text-text-dim hover:text-neon hover:border-neon'
+          }`}
+        >
+          Value Bets Only
+        </button>
       </div>
 
       {backfillResult && !backfillResult.error && (
