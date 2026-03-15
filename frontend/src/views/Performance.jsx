@@ -274,6 +274,36 @@ export default function Performance() {
   const completed = filterGames(game_log.filter((g) => g.completed));
   const pending = filterGames(game_log.filter((g) => !g.completed));
 
+  // Recompute KPIs from filtered games
+  const filteredStats = (() => {
+    const errors = completed
+      .filter((g) => g.model_spread != null && g.actual_margin != null)
+      .map((g) => Math.abs(-g.model_spread - g.actual_margin));
+    const mae = errors.length ? Math.round(errors.reduce((a, b) => a + b, 0) / errors.length * 10) / 10 : null;
+    const rmse = errors.length ? Math.round(Math.sqrt(errors.reduce((a, b) => a + b * b, 0) / errors.length) * 10) / 10 : null;
+
+    const decided = completed.filter((g) => g.model_result === 'correct' || g.model_result === 'incorrect');
+    const correct = decided.filter((g) => g.model_result === 'correct').length;
+    const winner_accuracy_pct = decided.length ? Math.round(correct / decided.length * 1000) / 10 : null;
+
+    const vbCompleted = completed.filter((g) => g.value_bet_side && (g.value_bet_result === 'won' || g.value_bet_result === 'lost'));
+    const vbWins = vbCompleted.filter((g) => g.value_bet_result === 'won').length;
+    const value_bet_win_rate_pct = vbCompleted.length ? Math.round(vbWins / vbCompleted.length * 1000) / 10 : null;
+
+    const margins = completed.filter((g) => g.actual_margin != null && g.model_spread != null).map((g) => -g.model_spread - g.actual_margin);
+    const bias = margins.length ? Math.round(margins.reduce((a, b) => a + b, 0) / margins.length * 10) / 10 : null;
+
+    return {
+      games_completed: completed.length,
+      games_pending: pending.length,
+      mae, rmse, winner_accuracy_pct,
+      value_bet_win_rate_pct,
+      value_bet_wins: vbWins,
+      value_bets_completed: vbCompleted.length,
+      bias,
+    };
+  })();
+
   return (
     <div className="space-y-6">
       {selectedGame && (
@@ -361,40 +391,40 @@ export default function Performance() {
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         <StatCard
           label="Games Tracked"
-          value={stats.games_completed + stats.games_pending}
-          sub={`${stats.games_pending} pending`}
+          value={filteredStats.games_completed + filteredStats.games_pending}
+          sub={`${filteredStats.games_pending} pending`}
         />
         <StatCard
           label="MAE"
-          value={stats.mae != null ? `${stats.mae} pts` : null}
+          value={filteredStats.mae != null ? `${filteredStats.mae} pts` : null}
           sub="mean abs error vs actual margin"
-          color={stats.mae != null && stats.mae < 8 ? 'text-neon' : 'text-text'}
+          color={filteredStats.mae != null && filteredStats.mae < 8 ? 'text-neon' : 'text-text'}
         />
         <StatCard
           label="RMSE"
-          value={stats.rmse != null ? `${stats.rmse} pts` : null}
+          value={filteredStats.rmse != null ? `${filteredStats.rmse} pts` : null}
           sub="root mean squared error"
         />
         <StatCard
           label="Winner Accuracy"
-          value={stats.winner_accuracy_pct != null ? `${stats.winner_accuracy_pct}%` : null}
-          sub={`over ${stats.games_completed} completed games`}
-          color={stats.winner_accuracy_pct >= 55 ? 'text-neon' : stats.winner_accuracy_pct < 50 ? 'text-red-400' : 'text-text'}
+          value={filteredStats.winner_accuracy_pct != null ? `${filteredStats.winner_accuracy_pct}%` : null}
+          sub={`over ${filteredStats.games_completed} completed games`}
+          color={filteredStats.winner_accuracy_pct >= 55 ? 'text-neon' : filteredStats.winner_accuracy_pct < 50 ? 'text-red-400' : 'text-text'}
         />
         <StatCard
           label="Value Bet W/R"
-          value={stats.value_bet_win_rate_pct != null ? `${stats.value_bet_win_rate_pct}%` : null}
-          sub={`${stats.value_bet_wins ?? 0}/${stats.value_bets_completed} bets`}
-          color={stats.value_bet_win_rate_pct >= 55 ? 'text-neon' : stats.value_bet_win_rate_pct < 50 ? 'text-red-400' : 'text-text'}
+          value={filteredStats.value_bet_win_rate_pct != null ? `${filteredStats.value_bet_win_rate_pct}%` : null}
+          sub={`${filteredStats.value_bet_wins ?? 0}/${filteredStats.value_bets_completed} bets`}
+          color={filteredStats.value_bet_win_rate_pct >= 55 ? 'text-neon' : filteredStats.value_bet_win_rate_pct < 50 ? 'text-red-400' : 'text-text'}
         />
       </div>
 
-      {stats.bias != null && (
+      {filteredStats.bias != null && (
         <div className="text-[10px] text-text-dim border border-border/40 rounded px-3 py-2">
-          Model bias: <span className={stats.bias > 0 ? 'text-neon' : 'text-blue'}>
-            {stats.bias > 0 ? '+' : ''}{stats.bias} pts
+          Model bias: <span className={filteredStats.bias > 0 ? 'text-neon' : 'text-blue'}>
+            {filteredStats.bias > 0 ? '+' : ''}{filteredStats.bias} pts
           </span>
-          {' '}({stats.bias > 0 ? 'slightly over-favoring home' : 'slightly over-favoring away'})
+          {' '}({filteredStats.bias > 0 ? 'slightly over-favoring home' : 'slightly over-favoring away'})
         </div>
       )}
 
