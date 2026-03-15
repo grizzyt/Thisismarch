@@ -205,6 +205,7 @@ export default function Performance() {
   const [search, setSearch] = useState('');
   const [onlyValue, setOnlyValue] = useState(false);
   const [dayFilter, setDayFilter] = useState('all');
+  const [sideFilter, setSideFilter] = useState('all'); // 'all' | 'favorite' | 'underdog'
 
   const load = () => {
     setLoading(true);
@@ -241,8 +242,22 @@ export default function Performance() {
     game_log.map((g) => g.commence_time ? new Date(g.commence_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : null).filter(Boolean)
   )].sort((a, b) => new Date(a) - new Date(b));
 
+  // consensus_spread < 0 means home is market favorite (standard convention)
+  function getPickSide(g) {
+    if (g.consensus_spread == null) return null;
+    const pickIsHome = g.value_bet_side
+      ? g.value_bet_side === g.home_team
+      : g.model_spread != null && g.model_spread < 0;
+    const homeIsFavorite = g.consensus_spread < 0;
+    return pickIsHome === homeIsFavorite ? 'favorite' : 'underdog';
+  }
+
   const filterGames = (list) => list.filter((g) => {
     if (onlyValue && !g.value_bet_side) return false;
+    if (sideFilter !== 'all') {
+      const side = getPickSide(g);
+      if (side !== sideFilter) return false;
+    }
     if (dayFilter !== 'all') {
       const d = g.commence_time ? new Date(g.commence_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : null;
       if (d !== dayFilter) return false;
@@ -309,6 +324,22 @@ export default function Performance() {
           }`}
         >
           Value Bets Only
+        </button>
+        <button
+          onClick={() => setSideFilter(sideFilter === 'favorite' ? 'all' : 'favorite')}
+          className={`text-[10px] border rounded px-2 py-1.5 transition-colors cursor-pointer ${
+            sideFilter === 'favorite' ? 'border-blue text-blue bg-blue/10' : 'border-border text-text-dim hover:text-blue hover:border-blue'
+          }`}
+        >
+          Favorites Only
+        </button>
+        <button
+          onClick={() => setSideFilter(sideFilter === 'underdog' ? 'all' : 'underdog')}
+          className={`text-[10px] border rounded px-2 py-1.5 transition-colors cursor-pointer ${
+            sideFilter === 'underdog' ? 'border-yellow-400 text-yellow-400 bg-yellow-400/10' : 'border-border text-text-dim hover:text-yellow-400 hover:border-yellow-400'
+          }`}
+        >
+          Underdogs Only
         </button>
       </div>
 
