@@ -9,6 +9,8 @@ Strategy:
 
 # Odds API name → BartTorvik name (only for names that don't auto-resolve)
 ALIASES = {
+    "Michigan State Spartans": "Michigan St.",
+    "Michigan Wolverines": "Michigan",
     "Bethune-Cookman Wildcats": "Bethune Cookman",
     "Ole Miss Rebels": "Mississippi",
     "UConn Huskies": "Connecticut",
