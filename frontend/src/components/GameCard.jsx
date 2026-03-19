@@ -156,17 +156,28 @@ export default function GameCard({ game, onClick }) {
           </div>
 
           {/* Model Pick */}
-          {!value_bet && p.model_spread != null && (
+          {!value_bet && p.model_spread != null && p.consensus_spread != null && (
             <div className="border-t border-border/50 pt-3 pb-1 text-center">
               <span className="text-[9px] text-text-dim uppercase tracking-wider">Model Pick  </span>
-              <span className={`text-xs font-bold ${p.model_spread < 0 ? 'text-neon' : 'text-blue'}`}>
-                {p.model_spread < 0
+              {(() => {
+                const homeCoverSpread = p.consensus_spread;
+                const awayCoverSpread = -p.consensus_spread;
+                const homeCovers = p.model_spread < p.consensus_spread;
+                const coverTeam = homeCovers
                   ? (game.home_torvik || game.home_team.replace(/ \w+$/, ''))
-                  : (game.away_torvik || game.away_team.replace(/ \w+$/, ''))}
-              </span>
-              <span className="text-[9px] text-text-dim ml-1">
-                ({p.model_spread < 0 ? formatSpread(p.model_spread) : formatSpread(-p.model_spread)})
-              </span>
+                  : (game.away_torvik || game.away_team.replace(/ \w+$/, ''));
+                const coverSpread = homeCovers ? homeCoverSpread : awayCoverSpread;
+                return (
+                  <>
+                    <span className={`text-xs font-bold ${homeCovers ? 'text-neon' : 'text-blue'}`}>
+                      {coverTeam}
+                    </span>
+                    <span className="text-[9px] text-text-dim ml-1">
+                      ({formatSpread(coverSpread)})
+                    </span>
+                  </>
+                );
+              })()}
             </div>
           )}
 
