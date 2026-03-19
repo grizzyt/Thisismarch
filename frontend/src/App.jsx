@@ -109,7 +109,7 @@ export default function App() {
             { id: 'performance', label: 'Perf' },
             { id: 'rankings', label: 'Rankings' },
             { id: 'brain', label: 'The Brain' },
-            { id: 'totals', label: 'Totals' },
+            { id: 'totals', label: 'O/U' },
           ].map((f) => (
             <button
               key={f.id}
