@@ -15,7 +15,9 @@ from team_mapper import match_team, save_alias
 from database import (init_db, upsert_prediction, get_performance_stats, get_game_log,
                       get_results_without_predictions, get_predictions_without_spread,
                       insert_retroactive_prediction, update_consensus_spread,
-                      get_stored_consensus_spreads)
+                      get_stored_consensus_spreads,
+                      upsert_ou_prediction, get_ou_game_log, get_ou_performance_stats)
+from ou_model import calibrate, predict_total, MIN_OU_EDGE, MAX_OU_EDGE
 from scores import fetch_and_store_scores
 
 
@@ -617,6 +619,109 @@ async def api_performance():
     stats = get_performance_stats()
     game_log = get_game_log(limit=200)
     return {"stats": stats, "game_log": game_log, "scores_fetch": result}
+
+
+# ──────────────────────────────────────────────
+# /api/ou-games — Over/Under predictions
+# ──────────────────────────────────────────────
+
+@app.get("/api/ou-games")
+async def api_ou_games():
+    """Returns O/U model predictions for all upcoming games."""
+    teams = get_teams()
+    odds = await get_odds()
+
+    # Calibrate the O/U model from historical data
+    slope, intercept = calibrate(
+        db_path=__import__('database').DB_PATH,
+        teams=teams,
+        nat_avg=_nat_avg,
+    )
+
+    results = []
+    for game in odds:
+        home_name = game.get("home_team", "")
+        away_name = game.get("away_team", "")
+        home_tv = match_team(home_name, teams)
+        away_tv = match_team(away_name, teams)
+
+        consensus_total = extract_consensus_total(game)
+        ct = game.get("commence_time", "")
+        game_id = game.get("id", "")
+
+        home_stats = teams.get(home_tv) if home_tv else None
+        away_stats = teams.get(away_tv) if away_tv else None
+
+        if not home_stats or not away_stats or consensus_total is None:
+            results.append({
+                "id": game_id,
+                "commence_time": ct,
+                "home_team": home_name,
+                "away_team": away_name,
+                "home_torvik": home_tv,
+                "away_torvik": away_tv,
+                "model_total": None,
+                "consensus_total": consensus_total,
+                "ou_edge": None,
+                "ou_pick": None,
+                "ou_value": False,
+                "calibration": {"slope": round(slope, 3), "intercept": round(intercept, 1)},
+            })
+            continue
+
+        pred = predict_total(home_stats, away_stats, _nat_avg, slope, intercept)
+        model_total = pred["model_total"]
+        ou_edge = round(model_total - consensus_total, 1)
+        ou_pick = "over" if ou_edge > 0 else "under"
+        ou_value = MIN_OU_EDGE <= abs(ou_edge) <= MAX_OU_EDGE
+
+        upsert_ou_prediction(
+            game_id=game_id,
+            commence_time=ct,
+            home_team=home_name,
+            away_team=away_name,
+            home_torvik=home_tv,
+            away_torvik=away_tv,
+            raw_total=pred["raw_total"],
+            model_total=model_total,
+            consensus_total=consensus_total,
+            ou_edge=ou_edge,
+            ou_pick=ou_pick,
+            ou_value=ou_value,
+        )
+
+        results.append({
+            "id": game_id,
+            "commence_time": ct,
+            "home_team": home_name,
+            "away_team": away_name,
+            "home_torvik": home_tv,
+            "away_torvik": away_tv,
+            "model_total": model_total,
+            "raw_total": pred["raw_total"],
+            "home_exp_oe": pred["home_exp_oe"],
+            "away_exp_oe": pred["away_exp_oe"],
+            "avg_tempo": pred["avg_tempo"],
+            "consensus_total": consensus_total,
+            "ou_edge": ou_edge,
+            "ou_pick": ou_pick,
+            "ou_value": ou_value,
+        })
+
+    results.sort(key=lambda g: g["commence_time"])
+    return {
+        "games": results,
+        "count": len(results),
+        "calibration": {"slope": round(slope, 3), "intercept": round(intercept, 1)},
+    }
+
+
+@app.get("/api/ou-performance")
+async def api_ou_performance():
+    await fetch_and_store_scores(days_from=1, force=False)
+    stats = get_ou_performance_stats()
+    game_log = get_ou_game_log(limit=200)
+    return {"stats": stats, "game_log": game_log}
 
 
 @app.post("/api/backfill-predictions")

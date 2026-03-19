@@ -54,6 +54,22 @@ CREATE TABLE IF NOT EXISTS results (
 );
 
 CREATE INDEX IF NOT EXISTS idx_pred_commence ON predictions(commence_time);
+
+CREATE TABLE IF NOT EXISTS ou_predictions (
+    game_id         TEXT PRIMARY KEY,
+    commence_time   TEXT NOT NULL,
+    home_team       TEXT NOT NULL,
+    away_team       TEXT NOT NULL,
+    home_torvik     TEXT,
+    away_torvik     TEXT,
+    raw_total       REAL,
+    model_total     REAL,
+    consensus_total REAL,
+    ou_edge         REAL,
+    ou_pick         TEXT,
+    ou_value        INTEGER DEFAULT 0,
+    captured_at     TEXT NOT NULL
+);
 """
 
 
@@ -369,6 +385,117 @@ def insert_retroactive_prediction(game_id: str, home_team: str, away_team: str,
              mc_mean, mc_std, mc_home_win_pct, now),
         )
         return c.execute("SELECT changes()").fetchone()[0]  # 1 = inserted, 0 = ignored
+
+
+def upsert_ou_prediction(game_id: str, commence_time: str,
+                         home_team: str, away_team: str,
+                         home_torvik: str, away_torvik: str,
+                         raw_total: float, model_total: float,
+                         consensus_total: float, ou_edge: float,
+                         ou_pick: str, ou_value: bool):
+    now = datetime.now(timezone.utc).isoformat()
+    with _conn() as c:
+        c.execute("""
+            INSERT INTO ou_predictions (
+                game_id, commence_time, home_team, away_team,
+                home_torvik, away_torvik, raw_total, model_total,
+                consensus_total, ou_edge, ou_pick, ou_value, captured_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(game_id) DO UPDATE SET
+                consensus_total = excluded.consensus_total,
+                model_total     = excluded.model_total,
+                raw_total       = excluded.raw_total,
+                ou_edge         = excluded.ou_edge,
+                ou_pick         = excluded.ou_pick,
+                ou_value        = excluded.ou_value,
+                captured_at     = excluded.captured_at
+        """, (game_id, commence_time, home_team, away_team,
+              home_torvik, away_torvik, raw_total, model_total,
+              consensus_total, ou_edge, ou_pick, int(ou_value), now))
+
+
+def get_ou_game_log(limit: int = 200) -> list[dict]:
+    with _conn() as c:
+        rows = c.execute("""
+            SELECT
+                o.game_id, o.commence_time, o.home_team, o.away_team,
+                o.home_torvik, o.away_torvik,
+                o.raw_total, o.model_total, o.consensus_total,
+                o.ou_edge, o.ou_pick, o.ou_value,
+                r.home_score, r.away_score,
+                r.home_score + r.away_score AS actual_total,
+                COALESCE(r.completed, 0) AS completed,
+                CASE
+                    WHEN COALESCE(r.completed, 0) = 0 THEN 'pending'
+                    WHEN o.consensus_total IS NULL THEN NULL
+                    WHEN (r.home_score + r.away_score) = o.consensus_total THEN 'push'
+                    WHEN o.ou_pick = 'over'  AND (r.home_score + r.away_score) > o.consensus_total THEN 'won'
+                    WHEN o.ou_pick = 'under' AND (r.home_score + r.away_score) < o.consensus_total THEN 'won'
+                    ELSE 'lost'
+                END AS ou_result
+            FROM ou_predictions o
+            LEFT JOIN results r ON o.game_id = r.game_id
+            ORDER BY
+                COALESCE(r.completed, 0) DESC,
+                o.commence_time DESC
+            LIMIT ?
+        """, (limit,)).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_ou_performance_stats() -> dict:
+    with _conn() as c:
+        row = c.execute("""
+            SELECT
+                COUNT(*) AS n,
+                ROUND(AVG(ABS(o.model_total - (r.home_score + r.away_score))), 2) AS mae,
+                SUM(CASE
+                    WHEN o.ou_pick = 'over'  AND (r.home_score + r.away_score) > o.consensus_total THEN 1
+                    WHEN o.ou_pick = 'under' AND (r.home_score + r.away_score) < o.consensus_total THEN 1
+                    ELSE 0 END) AS correct
+            FROM ou_predictions o
+            JOIN results r ON o.game_id = r.game_id
+            WHERE r.completed = 1
+              AND o.consensus_total IS NOT NULL
+              AND (r.home_score + r.away_score) != o.consensus_total
+        """).fetchone()
+
+        n = row["n"] or 0
+        stats = {
+            "games_completed": n,
+            "mae": row["mae"],
+            "win_rate_pct": round(row["correct"] / n * 100, 1) if n else None,
+            "wins": row["correct"] if n else 0,
+        }
+
+        vb = c.execute("""
+            SELECT
+                COUNT(*) AS n,
+                SUM(CASE
+                    WHEN o.ou_pick = 'over'  AND (r.home_score + r.away_score) > o.consensus_total THEN 1
+                    WHEN o.ou_pick = 'under' AND (r.home_score + r.away_score) < o.consensus_total THEN 1
+                    ELSE 0 END) AS wins
+            FROM ou_predictions o
+            JOIN results r ON o.game_id = r.game_id
+            WHERE r.completed = 1
+              AND o.ou_value = 1
+              AND o.consensus_total IS NOT NULL
+              AND (r.home_score + r.away_score) != o.consensus_total
+        """).fetchone()
+
+        vn = vb["n"] or 0
+        stats["value_completed"] = vn
+        stats["value_win_rate_pct"] = round(vb["wins"] / vn * 100, 1) if vn else None
+        stats["value_wins"] = vb["wins"] if vn else 0
+
+        pending = c.execute("""
+            SELECT COUNT(*) AS n FROM ou_predictions o
+            LEFT JOIN results r ON o.game_id = r.game_id
+            WHERE r.completed IS NULL OR r.completed = 0
+        """).fetchone()
+        stats["games_pending"] = pending["n"]
+
+        return stats
 
 
 def update_consensus_spread(game_id: str, consensus_spread: float,

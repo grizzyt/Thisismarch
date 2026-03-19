@@ -5,6 +5,7 @@ import GameDetail from './views/GameDetail';
 import Performance from './views/Performance';
 import Rankings from './views/Rankings';
 import TheBrain from './views/TheBrain';
+import Totals from './views/Totals';
 
 export default function App() {
   const [data, setData] = useState(null);
@@ -108,6 +109,7 @@ export default function App() {
             { id: 'performance', label: 'Perf' },
             { id: 'rankings', label: 'Rankings' },
             { id: 'brain', label: 'The Brain' },
+            { id: 'totals', label: 'Totals' },
           ].map((f) => (
             <button
               key={f.id}
@@ -123,7 +125,7 @@ export default function App() {
           ))}
         </div>
 
-        {!selectedGame && filter !== 'performance' && filter !== 'rankings' && filter !== 'brain' && (
+        {!selectedGame && filter !== 'performance' && filter !== 'rankings' && filter !== 'brain' && filter !== 'totals' && (
           <div className="flex flex-wrap items-center gap-2 w-full py-2 sm:py-1 sm:ml-auto sm:w-auto">
             <div className="flex text-[10px] border border-border rounded overflow-hidden">
               {[{ id: 'time', label: 'Time' }, { id: 'value', label: 'Edge' }].map((s) => (
@@ -198,6 +200,8 @@ export default function App() {
           <Rankings />
         ) : filter === 'brain' ? (
           <TheBrain games={games} />
+        ) : filter === 'totals' ? (
+          <Totals />
         ) : (
           <GameList
             games={filterGames(filter === 'value' ? valueBets : games)}
