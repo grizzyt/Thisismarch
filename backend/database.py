@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS results (
 
 CREATE INDEX IF NOT EXISTS idx_pred_commence ON predictions(commence_time);
 
+
 CREATE TABLE IF NOT EXISTS ou_predictions (
     game_id         TEXT PRIMARY KEY,
     commence_time   TEXT NOT NULL,
@@ -409,6 +410,7 @@ def update_consensus_spread(game_id: str, consensus_spread: float,
              value_bet_side, value_bet_edge, value_bet_reason,
              game_id),
         )
+
 
 
 def upsert_ou_prediction(game_id: str, commence_time: str,

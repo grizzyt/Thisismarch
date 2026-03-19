@@ -4,7 +4,7 @@ set -e
 
 echo "=== Installing system packages ==="
 apt-get update -y
-apt-get install -y python3 python3-pip python3-venv nginx nodejs npm
+apt-get install -y python3 python3-pip python3-venv nginx nodejs
 
 echo "=== Setting up backend ==="
 cd /opt/madnesslab/backend
