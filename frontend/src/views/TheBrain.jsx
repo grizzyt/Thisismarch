@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+
+const API = import.meta.env.VITE_API_URL ?? '';
 
 function Section({ step, title, children }) {
   return (
@@ -261,10 +263,105 @@ function GameBreakdown({ game }) {
   );
 }
 
+function OUBreakdown({ ou }) {
+  if (!ou) return (
+    <div className="text-text-dim text-xs text-center py-4 border border-border/30 rounded">
+      No O/U model data for this game.
+    </div>
+  );
+
+  const isValue = ou.ou_value;
+  const edgeColor = ou.ou_pick === 'over' ? 'text-neon' : 'text-blue';
+
+  return (
+    <div className="mt-4 space-y-3">
+      <Section step="A" title="O/U — Predict the Total Score">
+        <p className="text-[11px] text-text-dim mb-3">
+          Using the same efficiency data as the spread model, the O/U model predicts how many total points will be scored. Both teams' expected offense is summed and scaled by pace.
+        </p>
+        <div className="bg-surface-2 rounded p-3 mb-3 space-y-0">
+          <FormulaLine
+            label="Home expected OE"
+            formula={`adjOE × opp adjDE ÷ nat_avg`}
+            result={ou.home_exp_oe}
+            highlight="text-neon"
+          />
+          <FormulaLine
+            label="Away expected OE"
+            formula={`adjOE × opp adjDE ÷ nat_avg`}
+            result={ou.away_exp_oe}
+            highlight="text-blue"
+          />
+          <FormulaLine
+            label="Avg tempo"
+            formula={`(home_tempo + away_tempo) ÷ 2`}
+            result={`${ou.avg_tempo} poss`}
+          />
+          <FormulaLine
+            label="Raw total"
+            formula={`(${ou.home_exp_oe} + ${ou.away_exp_oe}) ÷ 100 × ${ou.avg_tempo}`}
+            result={ou.raw_total}
+          />
+          <FormulaLine
+            label="Calibrated model total"
+            formula={`1.074 × raw − 12.5  (fitted to 194 historical games)`}
+            result={<span className="text-neon font-bold">{ou.model_total}</span>}
+            highlight="text-neon"
+          />
+        </div>
+      </Section>
+
+      <Section step="B" title="O/U — Compare to Market Line">
+        <p className="text-[11px] text-text-dim mb-3">
+          The market O/U line is the consensus total from major sportsbooks. The edge is how far the model deviates from that line. A value bet is flagged when the edge is 2–10 pts.
+        </p>
+        <Row label="Model total" value={ou.model_total} highlight="text-neon" />
+        <Row label="Market O/U" value={ou.consensus_total ?? '—'} />
+        <Row
+          label="Edge"
+          value={ou.ou_edge != null ? `${ou.ou_edge > 0 ? '+' : ''}${ou.ou_edge} pts` : '—'}
+          highlight={Math.abs(ou.ou_edge ?? 0) >= 2 ? edgeColor : 'text-text-dim'}
+        />
+        <Row
+          label="Pick"
+          value={ou.ou_pick ? ou.ou_pick.toUpperCase() : '—'}
+          highlight={ou.ou_pick === 'over' ? 'text-neon' : 'text-blue'}
+        />
+        <Row
+          label="Value bet?"
+          value={isValue ? 'YES' : 'NO'}
+          highlight={isValue ? 'text-neon' : 'text-text-dim'}
+        />
+        {isValue && (
+          <div className="mt-3 text-[11px] bg-neon/10 border border-neon/30 rounded p-3">
+            <div className={`font-bold mb-1 ${edgeColor}`}>
+              ✓ O/U Value: {ou.ou_pick?.toUpperCase()} {ou.consensus_total}
+            </div>
+            <div className="text-text-dim">
+              Model projects total of <span className="text-neon font-bold">{ou.model_total}</span>,
+              market sits at <span className="text-text font-bold">{ou.consensus_total}</span>.
+              Edge of <span className={`font-bold ${edgeColor}`}>{Math.abs(ou.ou_edge)} pts</span> — take the {ou.ou_pick}.
+            </div>
+          </div>
+        )}
+      </Section>
+    </div>
+  );
+}
+
 export default function TheBrain({ games }) {
   const [selectedId, setSelectedId] = useState('');
+  const [ouGames, setOuGames] = useState([]);
+
+  useEffect(() => {
+    fetch(`${API}/api/ou-games`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (d?.games) setOuGames(d.games); })
+      .catch(() => {});
+  }, []);
 
   const selectedGame = games?.find((g) => g.id === selectedId);
+  const selectedOU = ouGames.find((g) => g.id === selectedId);
   const gamesWithData = games?.filter((g) => g.prediction && g.home_stats && g.away_stats) || [];
 
   return (
@@ -283,6 +380,16 @@ export default function TheBrain({ games }) {
           <p><span className="text-text font-bold">Step 5 — Market Consensus:</span> Average the spread from all major sportsbooks. Blend with the model (65% model / 35% market) for the final projected line.</p>
           <p><span className="text-text font-bold">Step 6 — Find the Edge:</span> If the model and market disagree by 2–8 pts, that's a credible value bet. Under 2 is noise. Over 8 may be bad data.</p>
           <p><span className="text-text font-bold">Step 7 — Lock at Tipoff:</span> Once a game starts, the spread is frozen to the pre-game line so live movement doesn't distort results.</p>
+        </div>
+
+        <div className="mt-4 border-t border-border pt-4">
+          <div className="text-[10px] text-text-dim uppercase tracking-widest mb-2 font-bold">Over/Under Model</div>
+          <div className="space-y-2 text-[11px] text-text-dim leading-relaxed border border-border rounded-lg p-4">
+            <p><span className="text-text font-bold">Step A — Predict the Total:</span> Using the same BartTorvik efficiency data, expected points per team are computed and summed: <span className="font-mono text-text">(home_exp_oe + away_exp_oe) ÷ 100 × avg_tempo</span>.</p>
+            <p><span className="text-text font-bold">Calibration:</span> The raw total is adjusted with a linear correction (slope × raw + intercept) fitted to 194 historical game totals via linear regression. Current fit: <span className="font-mono text-text">1.074 × raw − 12.5</span>.</p>
+            <p><span className="text-text font-bold">Step B — Find the Edge:</span> If the model total deviates from the market O/U line by 2–10 pts, a value bet is flagged. Over 2 suggests real disagreement with the market. Over 10 may indicate a data issue.</p>
+            <p><span className="text-text font-bold">Performance:</span> 61.1% win rate on value bets (66/108) across conference tournament games. NCAA tournament results are the true out-of-sample test.</p>
+          </div>
         </div>
       </div>
 
@@ -303,7 +410,15 @@ export default function TheBrain({ games }) {
           })}
         </select>
 
-        {selectedGame && <GameBreakdown game={selectedGame} />}
+        {selectedGame && (
+          <>
+            <GameBreakdown game={selectedGame} />
+            <div className="mt-6 border-t border-border pt-4">
+              <div className="text-[10px] text-text-dim uppercase tracking-widest mb-3 font-bold">Over/Under Breakdown</div>
+              <OUBreakdown ou={selectedOU} />
+            </div>
+          </>
+        )}
 
         {!selectedGame && (
           <div className="text-center text-text-dim text-xs py-10 border border-border/30 rounded-lg mt-4">
