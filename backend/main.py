@@ -38,15 +38,15 @@ async def _nightly_score_job():
         print(f"[scheduler] Next score refresh at {next_run.strftime('%Y-%m-%d %H:%M')} ({wait_secs/3600:.1f}h away)")
         await asyncio.sleep(wait_secs)
         print("[scheduler] Running nightly score refresh...")
-        await fetch_and_store_scores(days_from=1, force=True)
+        await fetch_and_store_scores(days_from=3, force=True)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: init DB, backfill up to 3 days of completed scores
     init_db()
-    print("[startup] Backfilling scores for last 3 days...")
-    await fetch_and_store_scores(days_from=3, force=True)
+    print("[startup] Backfilling scores for last 30 days...")
+    await fetch_and_store_scores(days_from=30, force=True)
     # Launch nightly background task
     task = asyncio.create_task(_nightly_score_job())
     yield
@@ -615,7 +615,7 @@ async def api_performance():
     Fetches latest scores on-demand (rate-limited to once per 30 min).
     Nightly job at 2 AM handles incremental daily updates automatically.
     """
-    result = await fetch_and_store_scores(days_from=1, force=False)
+    result = await fetch_and_store_scores(days_from=3, force=False)
     stats = get_performance_stats()
     game_log = get_game_log(limit=200)
     return {"stats": stats, "game_log": game_log, "scores_fetch": result}
@@ -732,7 +732,7 @@ async def api_backfill_predictions():
     Fetches historical consensus spreads from Odds API historical endpoint.
     """
     # First refresh scores so team names and commence_times are populated
-    await fetch_and_store_scores(days_from=3, force=True)
+    await fetch_and_store_scores(days_from=30, force=True)
 
     teams = get_teams()
     candidates = get_results_without_predictions()         # completed games with no prediction

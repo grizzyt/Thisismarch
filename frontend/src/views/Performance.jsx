@@ -206,6 +206,7 @@ export default function Performance() {
   const [onlyValue, setOnlyValue] = useState(false);
   const [dayFilter, setDayFilter] = useState('all');
   const [sideFilter, setSideFilter] = useState('all'); // 'all' | 'favorite' | 'underdog'
+  const [sortBy, setSortBy] = useState('date-desc'); // 'date-desc' | 'date-asc'
 
   const load = () => {
     setLoading(true);
@@ -271,8 +272,14 @@ export default function Performance() {
     return true;
   });
 
-  const completed = filterGames(game_log.filter((g) => g.completed));
-  const pending = filterGames(game_log.filter((g) => !g.completed));
+  const sortGames = (list) => [...list].sort((a, b) => {
+    const ta = new Date(a.commence_time).getTime();
+    const tb = new Date(b.commence_time).getTime();
+    return sortBy === 'date-asc' ? ta - tb : tb - ta;
+  });
+
+  const completed = sortGames(filterGames(game_log.filter((g) => g.completed)));
+  const pending = sortGames(filterGames(game_log.filter((g) => !g.completed)));
 
   // Recompute KPIs from filtered games
   const filteredStats = (() => {
@@ -346,6 +353,14 @@ export default function Performance() {
         >
           <option value="all">All Days</option>
           {dayOptions.map((d) => <option key={d} value={d}>{d}</option>)}
+        </select>
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value)}
+          className="text-xs bg-surface border border-border rounded px-3 py-1.5 text-text focus:outline-none focus:border-neon/50 cursor-pointer"
+        >
+          <option value="date-desc">Newest First</option>
+          <option value="date-asc">Oldest First</option>
         </select>
         <button
           onClick={() => setOnlyValue((v) => !v)}
