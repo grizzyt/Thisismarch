@@ -263,7 +263,7 @@ function GameBreakdown({ game }) {
   );
 }
 
-function OUBreakdown({ ou }) {
+function OUBreakdown({ ou, cal, stats }) {
   if (!ou) return (
     <div className="text-text-dim text-xs text-center py-4 border border-border/30 rounded">
       No O/U model data for this game.
@@ -272,6 +272,12 @@ function OUBreakdown({ ou }) {
 
   const isValue = ou.ou_value;
   const edgeColor = ou.ou_pick === 'over' ? 'text-neon' : 'text-blue';
+  const slope = cal?.slope ?? 1.074;
+  const intercept = cal?.intercept ?? -12.5;
+  const calLabel = intercept < 0
+    ? `${slope} × raw − ${Math.abs(intercept)}`
+    : `${slope} × raw + ${intercept}`;
+  const nGames = stats?.games_completed ?? '—';
 
   return (
     <div className="mt-4 space-y-3">
@@ -282,13 +288,13 @@ function OUBreakdown({ ou }) {
         <div className="bg-surface-2 rounded p-3 mb-3 space-y-0">
           <FormulaLine
             label="Home expected OE"
-            formula={`adjOE × opp adjDE ÷ nat_avg`}
+            formula={`home_adjOE × away_adjDE ÷ nat_avg`}
             result={ou.home_exp_oe}
             highlight="text-neon"
           />
           <FormulaLine
             label="Away expected OE"
-            formula={`adjOE × opp adjDE ÷ nat_avg`}
+            formula={`away_adjOE × home_adjDE ÷ nat_avg`}
             result={ou.away_exp_oe}
             highlight="text-blue"
           />
@@ -304,7 +310,7 @@ function OUBreakdown({ ou }) {
           />
           <FormulaLine
             label="Calibrated model total"
-            formula={`1.074 × raw − 12.5  (fitted to 194 historical games)`}
+            formula={`${calLabel}  (fitted to ${nGames} games)`}
             result={<span className="text-neon font-bold">{ou.model_total}</span>}
             highlight="text-neon"
           />
@@ -352,11 +358,17 @@ function OUBreakdown({ ou }) {
 export default function TheBrain({ games }) {
   const [selectedId, setSelectedId] = useState('');
   const [ouGames, setOuGames] = useState([]);
+  const [ouCal, setOuCal] = useState(null);
+  const [ouStats, setOuStats] = useState(null);
 
   useEffect(() => {
     fetch(`${API}/api/ou-games`)
       .then((r) => r.ok ? r.json() : null)
-      .then((d) => { if (d?.games) setOuGames(d.games); })
+      .then((d) => { if (d?.games) setOuGames(d.games); if (d?.calibration) setOuCal(d.calibration); })
+      .catch(() => {});
+    fetch(`${API}/api/ou-performance`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (d?.stats) setOuStats(d.stats); })
       .catch(() => {});
   }, []);
 
@@ -385,10 +397,26 @@ export default function TheBrain({ games }) {
         <div className="mt-4 border-t border-border pt-4">
           <div className="text-[10px] text-text-dim uppercase tracking-widest mb-2 font-bold">Over/Under Model</div>
           <div className="space-y-2 text-[11px] text-text-dim leading-relaxed border border-border rounded-lg p-4">
-            <p><span className="text-text font-bold">Step A — Predict the Total:</span> Using the same BartTorvik efficiency data, expected points per team are computed and summed: <span className="font-mono text-text">(home_exp_oe + away_exp_oe) ÷ 100 × avg_tempo</span>.</p>
-            <p><span className="text-text font-bold">Calibration:</span> The raw total is adjusted with a linear correction (slope × raw + intercept) fitted to 194 historical game totals via linear regression. Current fit: <span className="font-mono text-text">1.074 × raw − 12.5</span>.</p>
+            <p><span className="text-text font-bold">Step A — Predict the Total:</span> Using the same BartTorvik efficiency data, each team's offense is run against the opponent's defense:</p>
+            <div className="font-mono text-text bg-surface-2 rounded px-3 py-2 space-y-1 text-[10px]">
+              <div>home_exp_oe = home_adjOE × away_adjDE ÷ nat_avg</div>
+              <div>away_exp_oe = away_adjOE × home_adjDE ÷ nat_avg</div>
+              <div>raw_total = (home_exp_oe + away_exp_oe) ÷ 100 × avg_tempo</div>
+            </div>
+            <p><span className="text-text font-bold">Calibration:</span> A linear correction fitted to historical game totals via least-squares regression. Current fit ({ouStats?.games_completed ?? '—'} games):{' '}
+              <span className="font-mono text-text">
+                {ouCal
+                  ? `${ouCal.slope} × raw ${ouCal.intercept < 0 ? '−' : '+'} ${Math.abs(ouCal.intercept)}`
+                  : '1.074 × raw − 12.5'}
+              </span>.
+            </p>
             <p><span className="text-text font-bold">Step B — Find the Edge:</span> If the model total deviates from the market O/U line by 2–10 pts, a value bet is flagged. Over 2 suggests real disagreement with the market. Over 10 may indicate a data issue.</p>
-            <p><span className="text-text font-bold">Performance:</span> 61.1% win rate on value bets (66/108) across conference tournament games. NCAA tournament results are the true out-of-sample test.</p>
+            <p><span className="text-text font-bold">Performance:</span>{' '}
+              {ouStats
+                ? <><span className="text-text font-bold">{ouStats.value_win_rate_pct ?? '—'}%</span> win rate on value bets ({ouStats.value_wins}/{ouStats.value_completed})</>
+                : '—'
+              }{' '}across completed games. NCAA tournament results are the true out-of-sample test.
+            </p>
           </div>
         </div>
       </div>
@@ -415,7 +443,7 @@ export default function TheBrain({ games }) {
             <GameBreakdown game={selectedGame} />
             <div className="mt-6 border-t border-border pt-4">
               <div className="text-[10px] text-text-dim uppercase tracking-widest mb-3 font-bold">Over/Under Breakdown</div>
-              <OUBreakdown ou={selectedOU} />
+              <OUBreakdown ou={selectedOU} cal={ouCal} stats={ouStats} />
             </div>
           </>
         )}
