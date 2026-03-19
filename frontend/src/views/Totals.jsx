@@ -40,7 +40,6 @@ function OUCard({ game }) {
     <div className={`border rounded p-4 space-y-3 ${
       isValue ? 'border-neon/60 bg-neon/5' : 'border-border bg-card'
     } ${started ? 'opacity-60' : ''}`}>
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div className="text-[10px] text-text-dim uppercase tracking-wider">{fmt(game.commence_time)}</div>
         {isValue && (
@@ -50,13 +49,11 @@ function OUCard({ game }) {
         )}
       </div>
 
-      {/* Teams */}
       <div className="space-y-1">
         <div className="text-sm font-semibold text-text">{game.away_team}</div>
         <div className="text-text-dim text-xs">@ {game.home_team}</div>
       </div>
 
-      {/* Totals grid */}
       {hasModel ? (
         <div className="grid grid-cols-3 gap-2 text-center">
           <div className="border border-border rounded p-2">
@@ -69,9 +66,7 @@ function OUCard({ game }) {
           </div>
           <div className={`border rounded p-2 ${
             isValue
-              ? game.ou_pick === 'over'
-                ? 'border-neon/50 bg-neon/10'
-                : 'border-blue/50 bg-blue/10'
+              ? game.ou_pick === 'over' ? 'border-neon/50 bg-neon/10' : 'border-blue/50 bg-blue/10'
               : 'border-border'
           }`}>
             <div className="text-[10px] text-text-dim uppercase tracking-wider mb-1">Pick</div>
@@ -84,7 +79,6 @@ function OUCard({ game }) {
         <div className="text-text-dim text-xs">No model data available</div>
       )}
 
-      {/* Edge + breakdown */}
       {hasModel && (
         <div className="space-y-1 text-xs">
           <div className="flex justify-between text-text-dim">
@@ -114,10 +108,7 @@ function OUCard({ game }) {
 
 function OULogRow({ game }) {
   const resultColor = {
-    won: 'text-neon',
-    lost: 'text-red',
-    push: 'text-yellow',
-    pending: 'text-text-dim',
+    won: 'text-neon', lost: 'text-red', push: 'text-yellow', pending: 'text-text-dim',
   }[game.ou_result] || 'text-text-dim';
 
   const actualTotal = game.home_score != null ? game.home_score + game.away_score : null;
@@ -147,8 +138,7 @@ function OULogRow({ game }) {
       <td className={`px-3 py-2 text-xs text-center font-semibold ${resultColor}`}>
         {game.ou_result === 'won' ? 'W' :
          game.ou_result === 'lost' ? 'L' :
-         game.ou_result === 'push' ? 'P' :
-         game.ou_result === 'pending' ? '—' : '—'}
+         game.ou_result === 'push' ? 'P' : '—'}
       </td>
     </tr>
   );
@@ -161,7 +151,9 @@ export default function Totals() {
   const [error, setError] = useState(null);
   const [onlyValue, setOnlyValue] = useState(false);
   const [onlyToday, setOnlyToday] = useState(false);
-  const [tab, setTab] = useState('games'); // 'games' | 'history'
+  const [tab, setTab] = useState('games');
+  const [backfilling, setBackfilling] = useState(false);
+  const [backfillResult, setBackfillResult] = useState(null);
 
   useEffect(() => {
     Promise.all([fetchOUGames(), fetchOUPerformance()])
@@ -169,6 +161,20 @@ export default function Totals() {
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
+
+  const runBackfill = () => {
+    setBackfilling(true);
+    setBackfillResult(null);
+    fetch(`${API}/api/backfill-ou`, { method: 'POST' })
+      .then((r) => r.json())
+      .then((d) => {
+        setBackfillResult(d);
+        return fetchOUPerformance();
+      })
+      .then((p) => setPerfData(p))
+      .catch((e) => setBackfillResult({ error: e.message }))
+      .finally(() => setBackfilling(false));
+  };
 
   const games = gamesData?.games || [];
   const stats = perfData?.stats || {};
@@ -184,14 +190,11 @@ export default function Totals() {
     return true;
   });
 
-  const valueGames = games.filter((g) => g.ou_value);
-
   if (loading) return <div className="text-text-dim text-sm p-8">Loading O/U model...</div>;
   if (error) return <div className="text-red text-sm p-8">Error: {error}</div>;
 
   return (
     <div className="space-y-6">
-      {/* KPI row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <StatCard label="Games Tracked" value={stats.games_completed ?? 0} sub={`${stats.games_pending ?? 0} pending`} />
         <StatCard label="Model MAE" value={stats.mae != null ? `${stats.mae} pts` : null} sub="avg miss vs actual total" />
@@ -207,16 +210,33 @@ export default function Totals() {
         />
       </div>
 
-      {/* Calibration info */}
+      <div className="flex items-center gap-3">
+        <button
+          onClick={runBackfill}
+          disabled={backfilling}
+          className="text-[10px] border border-border rounded px-2 py-1 text-text-dim hover:text-blue hover:border-blue transition-colors cursor-pointer disabled:opacity-50"
+        >
+          {backfilling ? 'Running...' : 'Backfill History'}
+        </button>
+        {backfillResult && !backfillResult.error && (
+          <span className="text-[10px] text-text-dim">
+            <span className="text-neon">{backfillResult.inserted} games processed</span>
+            {' '}· {backfillResult.historical_totals_found} historical lines found
+          </span>
+        )}
+        {backfillResult?.error && (
+          <span className="text-[10px] text-red">{backfillResult.error}</span>
+        )}
+      </div>
+
       {cal && (
         <div className="text-[10px] text-text-dim border border-border/40 rounded px-3 py-2 inline-flex gap-4">
-          <span>Model calibration — slope: <span className="text-text">{cal.slope}</span></span>
+          <span>Calibration — slope: <span className="text-text">{cal.slope}</span></span>
           <span>intercept: <span className="text-text">{cal.intercept}</span></span>
-          <span className="text-text-dim italic">fitted to historical game totals</span>
+          <span className="italic">fitted to historical game totals</span>
         </div>
       )}
 
-      {/* Sub-tabs */}
       <div className="flex gap-0 border-b border-border">
         {[
           { id: 'games', label: `Upcoming (${games.length})` },
@@ -238,7 +258,6 @@ export default function Totals() {
 
       {tab === 'games' && (
         <>
-          {/* Filters */}
           <div className="flex gap-2 flex-wrap">
             <button
               onClick={() => setOnlyValue((v) => !v)}
@@ -246,7 +265,7 @@ export default function Totals() {
                 onlyValue ? 'text-neon border-neon' : 'text-text-dim border-border hover:text-text'
               }`}
             >
-              Value Bets ({valueGames.length})
+              Value Bets ({games.filter(g => g.ou_value).length})
             </button>
             <button
               onClick={() => setOnlyToday((v) => !v)}
@@ -258,7 +277,6 @@ export default function Totals() {
             </button>
           </div>
 
-          {/* Game cards */}
           {filteredGames.length === 0 ? (
             <div className="text-text-dim text-sm">No games match your filters.</div>
           ) : (

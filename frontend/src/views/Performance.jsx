@@ -206,7 +206,6 @@ export default function Performance() {
   const [onlyValue, setOnlyValue] = useState(false);
   const [dayFilter, setDayFilter] = useState('all');
   const [sideFilter, setSideFilter] = useState('all'); // 'all' | 'favorite' | 'underdog'
-  const [sortBy, setSortBy] = useState('date-desc'); // 'date-desc' | 'date-asc'
 
   const load = () => {
     setLoading(true);
@@ -224,6 +223,16 @@ export default function Performance() {
     fetch('/api/backfill-predictions', { method: 'POST' })
       .then((r) => r.json())
       .then((d) => { setBackfillResult(d); load(); })
+      .catch((e) => setBackfillResult({ error: e.message }))
+      .finally(() => setBackfilling(false));
+  };
+
+  const fixPending = () => {
+    setBackfilling(true);
+    setBackfillResult(null);
+    fetch('/api/fix-pending-scores', { method: 'POST' })
+      .then((r) => r.json())
+      .then((d) => { setBackfillResult({ fix_pending: d }); load(); })
       .catch((e) => setBackfillResult({ error: e.message }))
       .finally(() => setBackfilling(false));
   };
@@ -272,14 +281,8 @@ export default function Performance() {
     return true;
   });
 
-  const sortGames = (list) => [...list].sort((a, b) => {
-    const ta = new Date(a.commence_time).getTime();
-    const tb = new Date(b.commence_time).getTime();
-    return sortBy === 'date-asc' ? ta - tb : tb - ta;
-  });
-
-  const completed = sortGames(filterGames(game_log.filter((g) => g.completed)));
-  const pending = sortGames(filterGames(game_log.filter((g) => !g.completed)));
+  const completed = filterGames(game_log.filter((g) => g.completed));
+  const pending = filterGames(game_log.filter((g) => !g.completed));
 
   // Recompute KPIs from filtered games
   const filteredStats = (() => {
@@ -322,6 +325,13 @@ export default function Performance() {
         <h2 className="text-xs uppercase tracking-widest text-text-dim">Model Performance</h2>
         <div className="flex gap-2 items-center">
           <button
+            onClick={fixPending}
+            disabled={backfilling}
+            className="text-[10px] text-text-dim border border-border rounded px-2 py-1 hover:text-yellow-400 hover:border-yellow-400 transition-colors cursor-pointer disabled:opacity-50"
+          >
+            {backfilling ? 'Working...' : 'Fix Pending Scores'}
+          </button>
+          <button
             onClick={runBackfill}
             disabled={backfilling}
             className="text-[10px] text-text-dim border border-border rounded px-2 py-1 hover:text-blue hover:border-blue transition-colors cursor-pointer disabled:opacity-50"
@@ -354,14 +364,6 @@ export default function Performance() {
           <option value="all">All Days</option>
           {dayOptions.map((d) => <option key={d} value={d}>{d}</option>)}
         </select>
-        <select
-          value={sortBy}
-          onChange={(e) => setSortBy(e.target.value)}
-          className="text-xs bg-surface border border-border rounded px-3 py-1.5 text-text focus:outline-none focus:border-neon/50 cursor-pointer"
-        >
-          <option value="date-desc">Newest First</option>
-          <option value="date-asc">Oldest First</option>
-        </select>
         <button
           onClick={() => setOnlyValue((v) => !v)}
           className={`text-[10px] border rounded px-2 py-1.5 transition-colors cursor-pointer ${
@@ -388,7 +390,13 @@ export default function Performance() {
         </button>
       </div>
 
-      {backfillResult && !backfillResult.error && (
+      {backfillResult?.fix_pending && (
+        <div className="text-[10px] border border-border/40 rounded px-3 py-2 text-text-dim">
+          Fixed pending: <span className="text-neon">{backfillResult.fix_pending.updated} games updated</span>
+          {' '}out of {backfillResult.fix_pending.tracked_predictions} tracked predictions
+        </div>
+      )}
+      {backfillResult && !backfillResult.error && !backfillResult.fix_pending && (
         <div className="text-[10px] border border-border/40 rounded px-3 py-2 text-text-dim">
           Retroactive sim: <span className="text-neon">{backfillResult.retroactive_inserted} games inserted</span>
           {' '}/ {backfillResult.total_candidates} candidates

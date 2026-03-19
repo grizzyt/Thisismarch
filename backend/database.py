@@ -387,6 +387,30 @@ def insert_retroactive_prediction(game_id: str, home_team: str, away_team: str,
         return c.execute("SELECT changes()").fetchone()[0]  # 1 = inserted, 0 = ignored
 
 
+def update_consensus_spread(game_id: str, consensus_spread: float,
+                             edge: float = None, credible: bool = False,
+                             value_bet_side: str = None, value_bet_edge: float = None,
+                             value_bet_reason: str = None):
+    """Update consensus_spread, edge, and value_bet fields for an existing prediction."""
+    with _conn() as c:
+        c.execute(
+            """
+            UPDATE predictions
+            SET consensus_spread  = ?,
+                edge              = ?,
+                credible          = ?,
+                value_bet_side    = COALESCE(value_bet_side, ?),
+                value_bet_edge    = COALESCE(value_bet_edge, ?),
+                value_bet_reason  = COALESCE(value_bet_reason, ?)
+            WHERE game_id = ?
+              AND (consensus_spread IS NULL OR value_bet_side IS NULL)
+            """,
+            (consensus_spread, edge, int(credible),
+             value_bet_side, value_bet_edge, value_bet_reason,
+             game_id),
+        )
+
+
 def upsert_ou_prediction(game_id: str, commence_time: str,
                          home_team: str, away_team: str,
                          home_torvik: str, away_torvik: str,
@@ -414,7 +438,7 @@ def upsert_ou_prediction(game_id: str, commence_time: str,
               consensus_total, ou_edge, ou_pick, int(ou_value), now))
 
 
-def get_ou_game_log(limit: int = 200) -> list[dict]:
+def get_ou_game_log(limit: int = 500) -> list[dict]:
     with _conn() as c:
         rows = c.execute("""
             SELECT
@@ -496,27 +520,3 @@ def get_ou_performance_stats() -> dict:
         stats["games_pending"] = pending["n"]
 
         return stats
-
-
-def update_consensus_spread(game_id: str, consensus_spread: float,
-                             edge: float = None, credible: bool = False,
-                             value_bet_side: str = None, value_bet_edge: float = None,
-                             value_bet_reason: str = None):
-    """Update consensus_spread, edge, and value_bet fields for an existing prediction."""
-    with _conn() as c:
-        c.execute(
-            """
-            UPDATE predictions
-            SET consensus_spread  = ?,
-                edge              = ?,
-                credible          = ?,
-                value_bet_side    = COALESCE(value_bet_side, ?),
-                value_bet_edge    = COALESCE(value_bet_edge, ?),
-                value_bet_reason  = COALESCE(value_bet_reason, ?)
-            WHERE game_id = ?
-              AND (consensus_spread IS NULL OR value_bet_side IS NULL)
-            """,
-            (consensus_spread, edge, int(credible),
-             value_bet_side, value_bet_edge, value_bet_reason,
-             game_id),
-        )

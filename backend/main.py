@@ -17,8 +17,8 @@ from database import (init_db, upsert_prediction, get_performance_stats, get_gam
                       insert_retroactive_prediction, update_consensus_spread,
                       get_stored_consensus_spreads,
                       upsert_ou_prediction, get_ou_game_log, get_ou_performance_stats)
-from ou_model import calibrate, predict_total, MIN_OU_EDGE, MAX_OU_EDGE
 from scores import fetch_and_store_scores
+from ou_model import calibrate, predict_total, MIN_OU_EDGE, MAX_OU_EDGE
 
 
 async def _nightly_score_job():
@@ -38,15 +38,15 @@ async def _nightly_score_job():
         print(f"[scheduler] Next score refresh at {next_run.strftime('%Y-%m-%d %H:%M')} ({wait_secs/3600:.1f}h away)")
         await asyncio.sleep(wait_secs)
         print("[scheduler] Running nightly score refresh...")
-        await fetch_and_store_scores(days_from=3, force=True)
+        await fetch_and_store_scores(days_from=1, force=True)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: init DB, backfill up to 3 days of completed scores
     init_db()
-    print("[startup] Backfilling scores for last 30 days...")
-    await fetch_and_store_scores(days_from=30, force=True)
+    print("[startup] Backfilling scores for last 3 days...")
+    await fetch_and_store_scores(days_from=3, force=True)
     # Launch nightly background task
     task = asyncio.create_task(_nightly_score_job())
     yield
@@ -469,6 +469,58 @@ async def fetch_historical_spreads(candidates: list[dict]) -> dict:
     return spreads
 
 
+async def fetch_historical_totals(candidates: list[dict]) -> dict:
+    """
+    Like fetch_historical_spreads but pulls totals market.
+    Groups by tipoff hour bucket, one API call per unique hour.
+    Returns dict of {game_id: consensus_total}.
+    """
+    if not ODDS_API_KEY:
+        return {}
+
+    from collections import defaultdict
+    by_hour = defaultdict(list)
+    for game in candidates:
+        ct = game.get("commence_time") or ""
+        if ct:
+            hour_bucket = ct[:14] + "00:00Z"
+            by_hour[hour_bucket].append(game)
+
+    totals = {}
+    game_ids_for_hour = {}
+    for hour_ts, games in by_hour.items():
+        game_ids_for_hour[hour_ts] = {g["game_id"] for g in games}
+
+    async with httpx.AsyncClient(timeout=20) as client:
+        for hour_ts, games in by_hour.items():
+            try:
+                resp = await client.get(
+                    f"{ODDS_API_BASE}/historical/sports/basketball_ncaab/odds",
+                    params={
+                        "apiKey": ODDS_API_KEY,
+                        "date": hour_ts,
+                        "regions": "us",
+                        "markets": "totals",
+                        "bookmakers": "draftkings,fanduel,betmgm,williamhill_us,betrivers,pointsbetus",
+                    },
+                )
+                resp.raise_for_status()
+                payload = resp.json()
+                remaining = resp.headers.get("x-requests-remaining", "?")
+                print(f"[historical_totals] {hour_ts}: {len(payload.get('data', []))} games — {remaining} requests remaining")
+                bucket_ids = game_ids_for_hour[hour_ts]
+                for event in payload.get("data", []):
+                    if event["id"] not in bucket_ids:
+                        continue
+                    total = extract_consensus_total(event)
+                    if total is not None:
+                        totals[event["id"]] = total
+            except Exception as e:
+                print(f"[historical_totals] Failed for {hour_ts}: {e}")
+
+    return totals
+
+
 @app.get("/api/games")
 async def api_games():
     """
@@ -615,9 +667,9 @@ async def api_performance():
     Fetches latest scores on-demand (rate-limited to once per 30 min).
     Nightly job at 2 AM handles incremental daily updates automatically.
     """
-    result = await fetch_and_store_scores(days_from=3, force=False)
+    result = await fetch_and_store_scores(days_from=1, force=False)
     stats = get_performance_stats()
-    game_log = get_game_log(limit=200)
+    game_log = get_game_log(limit=500)
     return {"stats": stats, "game_log": game_log, "scores_fetch": result}
 
 
@@ -627,11 +679,9 @@ async def api_performance():
 
 @app.get("/api/ou-games")
 async def api_ou_games():
-    """Returns O/U model predictions for all upcoming games."""
     teams = get_teams()
     odds = await get_odds()
 
-    # Calibrate the O/U model from historical data
     slope, intercept = calibrate(
         db_path=__import__('database').DB_PATH,
         teams=teams,
@@ -654,18 +704,11 @@ async def api_ou_games():
 
         if not home_stats or not away_stats or consensus_total is None:
             results.append({
-                "id": game_id,
-                "commence_time": ct,
-                "home_team": home_name,
-                "away_team": away_name,
-                "home_torvik": home_tv,
-                "away_torvik": away_tv,
-                "model_total": None,
-                "consensus_total": consensus_total,
-                "ou_edge": None,
-                "ou_pick": None,
-                "ou_value": False,
-                "calibration": {"slope": round(slope, 3), "intercept": round(intercept, 1)},
+                "id": game_id, "commence_time": ct,
+                "home_team": home_name, "away_team": away_name,
+                "home_torvik": home_tv, "away_torvik": away_tv,
+                "model_total": None, "consensus_total": consensus_total,
+                "ou_edge": None, "ou_pick": None, "ou_value": False,
             })
             continue
 
@@ -676,43 +719,100 @@ async def api_ou_games():
         ou_value = MIN_OU_EDGE <= abs(ou_edge) <= MAX_OU_EDGE
 
         upsert_ou_prediction(
-            game_id=game_id,
-            commence_time=ct,
-            home_team=home_name,
-            away_team=away_name,
-            home_torvik=home_tv,
-            away_torvik=away_tv,
+            game_id=game_id, commence_time=ct,
+            home_team=home_name, away_team=away_name,
+            home_torvik=home_tv, away_torvik=away_tv,
+            raw_total=pred["raw_total"], model_total=model_total,
+            consensus_total=consensus_total, ou_edge=ou_edge,
+            ou_pick=ou_pick, ou_value=ou_value,
+        )
+
+        results.append({
+            "id": game_id, "commence_time": ct,
+            "home_team": home_name, "away_team": away_name,
+            "home_torvik": home_tv, "away_torvik": away_tv,
+            "model_total": model_total, "raw_total": pred["raw_total"],
+            "home_exp_oe": pred["home_exp_oe"], "away_exp_oe": pred["away_exp_oe"],
+            "avg_tempo": pred["avg_tempo"],
+            "consensus_total": consensus_total,
+            "ou_edge": ou_edge, "ou_pick": ou_pick, "ou_value": ou_value,
+        })
+
+    results.sort(key=lambda g: g["commence_time"])
+    return {
+        "games": results, "count": len(results),
+        "calibration": {"slope": round(slope, 3), "intercept": round(intercept, 1)},
+    }
+
+
+@app.post("/api/backfill-ou")
+async def api_backfill_ou():
+    """
+    Retroactively runs the O/U model against all completed games that have
+    Torvik data. Fetches historical consensus totals from the Odds API.
+    Uses INSERT OR REPLACE so it's safe to run multiple times.
+    """
+    teams = get_teams()
+    slope, intercept = calibrate(
+        db_path=__import__('database').DB_PATH,
+        teams=teams,
+        nat_avg=_nat_avg,
+    )
+
+    import sqlite3 as _sq
+    with _sq.connect(__import__('database').DB_PATH) as c:
+        c.row_factory = _sq.Row
+        rows = c.execute("""
+            SELECT p.game_id, p.home_team, p.away_team,
+                   p.home_torvik, p.away_torvik,
+                   COALESCE(r.commence_time, p.commence_time) AS commence_time
+            FROM predictions p
+            JOIN results r ON p.game_id = r.game_id
+            WHERE r.completed = 1
+              AND p.home_torvik IS NOT NULL
+              AND p.away_torvik IS NOT NULL
+        """).fetchall()
+        candidates = [dict(r) for r in rows]
+
+    if not candidates:
+        return {"inserted": 0, "message": "No completed games with Torvik data found"}
+
+    historical_totals = await fetch_historical_totals(candidates)
+    print(f"[backfill_ou] Historical totals fetched for {len(historical_totals)} games")
+
+    inserted = 0
+    for game in candidates:
+        ht = teams.get(game["home_torvik"])
+        at = teams.get(game["away_torvik"])
+        if not ht or not at:
+            continue
+
+        pred = predict_total(ht, at, _nat_avg, slope, intercept)
+        consensus_total = historical_totals.get(game["game_id"])
+        ou_edge = round(pred["model_total"] - consensus_total, 1) if consensus_total is not None else None
+        ou_pick = ("over" if ou_edge > 0 else "under") if ou_edge is not None else None
+        ou_value = MIN_OU_EDGE <= abs(ou_edge) <= MAX_OU_EDGE if ou_edge is not None else False
+
+        upsert_ou_prediction(
+            game_id=game["game_id"],
+            commence_time=game["commence_time"],
+            home_team=game["home_team"],
+            away_team=game["away_team"],
+            home_torvik=game["home_torvik"],
+            away_torvik=game["away_torvik"],
             raw_total=pred["raw_total"],
-            model_total=model_total,
+            model_total=pred["model_total"],
             consensus_total=consensus_total,
             ou_edge=ou_edge,
             ou_pick=ou_pick,
             ou_value=ou_value,
         )
+        inserted += 1
 
-        results.append({
-            "id": game_id,
-            "commence_time": ct,
-            "home_team": home_name,
-            "away_team": away_name,
-            "home_torvik": home_tv,
-            "away_torvik": away_tv,
-            "model_total": model_total,
-            "raw_total": pred["raw_total"],
-            "home_exp_oe": pred["home_exp_oe"],
-            "away_exp_oe": pred["away_exp_oe"],
-            "avg_tempo": pred["avg_tempo"],
-            "consensus_total": consensus_total,
-            "ou_edge": ou_edge,
-            "ou_pick": ou_pick,
-            "ou_value": ou_value,
-        })
-
-    results.sort(key=lambda g: g["commence_time"])
     return {
-        "games": results,
-        "count": len(results),
-        "calibration": {"slope": round(slope, 3), "intercept": round(intercept, 1)},
+        "inserted": inserted,
+        "historical_totals_found": len(historical_totals),
+        "candidates": len(candidates),
     }
 
 
@@ -720,8 +820,63 @@ async def api_ou_games():
 async def api_ou_performance():
     await fetch_and_store_scores(days_from=1, force=False)
     stats = get_ou_performance_stats()
-    game_log = get_ou_game_log(limit=200)
+    game_log = get_ou_game_log(limit=500)
     return {"stats": stats, "game_log": game_log}
+
+
+@app.post("/api/fix-pending-scores")
+async def api_fix_pending_scores():
+    """
+    Fetches scores for the last 14 days but only updates games that are
+    already tracked in the predictions table. Safe — won't add new games.
+    """
+    import sqlite3 as _sqlite3
+    with _sqlite3.connect(__import__('database').DB_PATH) as c:
+        # Only target predictions that have no completed result yet
+        tracked_ids = {r[0] for r in c.execute("""
+            SELECT p.game_id FROM predictions p
+            LEFT JOIN results r ON p.game_id = r.game_id
+            WHERE r.completed IS NULL OR r.completed = 0
+        """).fetchall()}
+
+    if not ODDS_API_KEY:
+        return {"error": "no api key"}
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.get(
+            f"{ODDS_API_BASE}/sports/basketball_ncaab/scores",
+            params={"apiKey": ODDS_API_KEY, "daysFrom": 3},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+    updated = 0
+    for game in data:
+        if not game.get("completed"):
+            continue
+        if game["id"] not in tracked_ids:
+            continue
+        score_map = {s["name"]: s["score"] for s in (game.get("scores") or [])}
+        home = game["home_team"]
+        away = game["away_team"]
+        try:
+            home_score = int(score_map.get(home, 0))
+            away_score = int(score_map.get(away, 0))
+        except (ValueError, TypeError):
+            continue
+        upsert_result(
+            game_id=game["id"],
+            home_score=home_score,
+            away_score=away_score,
+            actual_margin=home_score - away_score,
+            completed=1,
+            home_team=home,
+            away_team=away,
+            commence_time=game.get("commence_time"),
+        )
+        updated += 1
+
+    return {"updated": updated, "tracked_predictions": len(tracked_ids)}
 
 
 @app.post("/api/backfill-predictions")
@@ -732,7 +887,7 @@ async def api_backfill_predictions():
     Fetches historical consensus spreads from Odds API historical endpoint.
     """
     # First refresh scores so team names and commence_times are populated
-    await fetch_and_store_scores(days_from=30, force=True)
+    await fetch_and_store_scores(days_from=3, force=True)
 
     teams = get_teams()
     candidates = get_results_without_predictions()         # completed games with no prediction
