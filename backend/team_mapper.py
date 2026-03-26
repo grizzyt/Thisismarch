@@ -10,6 +10,8 @@ Strategy:
 # Odds API name → BartTorvik name (only for names that don't auto-resolve)
 ALIASES = {
     "Michigan State Spartans": "Michigan St.",
+    "Michigan St Spartans": "Michigan St.",
+    "Michigan State": "Michigan St.",
     "Michigan Wolverines": "Michigan",
     "Bethune-Cookman Wildcats": "Bethune Cookman",
     "Ole Miss Rebels": "Mississippi",
@@ -164,7 +166,7 @@ def match_team(odds_name: str, torvik_teams: dict) -> str | None:
         if tname.lower() == base_lower:
             _cache[odds_name] = tname
             return tname
-        if tname.lower().startswith(base_lower) or base_lower.startswith(tname.lower()):
+        if tname.lower().startswith(base_lower):
             _cache[odds_name] = tname
             return tname
 
