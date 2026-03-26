@@ -539,6 +539,15 @@ async def api_games():
     all_game_ids = [g["id"] for g in odds]
     locked_spreads = get_stored_consensus_spreads(all_game_ids)
 
+    # Find each team's earliest scheduled game. A game is a speculative future-round
+    # matchup if either team has an earlier game in the list (can't play twice).
+    earliest: dict[str, str] = {}
+    for g in odds:
+        ct = g.get("commence_time", "")
+        for team in (g["home_team"], g["away_team"]):
+            if team not in earliest or ct < earliest[team]:
+                earliest[team] = ct
+
     for game in odds:
         home_odds = game["home_team"]
         away_odds = game["away_team"]
@@ -556,8 +565,10 @@ async def api_games():
         game_id = game.get("id", "")
         ct_str = game.get("commence_time", "")
         game_started = bool(ct_str and datetime.fromisoformat(ct_str.replace("Z", "+00:00")) <= now_utc)
-        days_away = (datetime.fromisoformat(ct_str.replace("Z", "+00:00")) - now_utc).days if ct_str else 0
-        future_round = days_away >= 3
+        future_round = (
+            ct_str != earliest.get(home_odds) or
+            ct_str != earliest.get(away_odds)
+        )
 
         prediction = None
         value_bet = None
