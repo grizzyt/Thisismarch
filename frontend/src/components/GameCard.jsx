@@ -59,6 +59,11 @@ export default function GameCard({ game, onClick }) {
       <div className="flex items-center justify-between mb-3">
         <span className="text-[10px] text-text-dim">
           {formatTime(game.commence_time)}
+          {game.future_round && (
+            <span className="ml-2 px-1.5 py-0.5 rounded text-[9px] uppercase tracking-wider bg-blue/10 text-blue border border-blue/20">
+              Future Round
+            </span>
+          )}
         </span>
         {value_bet && (
           <span className={`text-[9px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${

@@ -556,6 +556,8 @@ async def api_games():
         game_id = game.get("id", "")
         ct_str = game.get("commence_time", "")
         game_started = bool(ct_str and datetime.fromisoformat(ct_str.replace("Z", "+00:00")) <= now_utc)
+        days_away = (datetime.fromisoformat(ct_str.replace("Z", "+00:00")) - now_utc).days if ct_str else 0
+        future_round = days_away >= 3
 
         prediction = None
         value_bet = None
@@ -631,6 +633,7 @@ async def api_games():
             "away_ml": away_ml,
             "prediction": prediction,
             "value_bet": value_bet,
+            "future_round": future_round,
         }
         games.append(entry)
 
