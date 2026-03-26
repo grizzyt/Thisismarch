@@ -166,7 +166,7 @@ def match_team(odds_name: str, torvik_teams: dict) -> str | None:
         if tname.lower() == base_lower:
             _cache[odds_name] = tname
             return tname
-        if tname.lower().startswith(base_lower):
+        if tname.lower().startswith(base_lower) or base_lower.startswith(tname.lower()):
             _cache[odds_name] = tname
             return tname
 
